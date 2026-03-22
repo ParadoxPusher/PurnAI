@@ -1,5 +1,41 @@
 import { NextResponse } from 'next/server';
 
+export const maxDuration = 120;
+
+// Model priority: kimi-k2-thinking (has reasoning), fallback to kimi-k2-instruct
+const PRIMARY_MODEL = "moonshotai/kimi-k2-thinking";
+const FALLBACK_MODEL = "moonshotai/kimi-k2-instruct";
+
+async function tryFetchModel(
+  invokeUrl: string,
+  apiKey: string,
+  payload: any,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(invokeUrl, {
+      method: 'POST',
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Accept": "text/event-stream",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+      // @ts-ignore
+      cache: 'no-store',
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { messages, mode = 'normal', searchResults } = await req.json();
@@ -92,7 +128,7 @@ IMPORTANT RULES:
 
     // --- Mode-specific prompt additions ---
     let modePrompt = '';
-    let temperature = 0.7;
+    let temperature = 0.6;
     let maxTokens = 16384;
 
     // Build web search context if available
@@ -152,7 +188,7 @@ You have access to real-time web search results provided below. You MUST:
 ${searchContext}`;
 
     if (mode === 'deep-research+web-search') {
-      temperature = 0.3;
+      temperature = 0.6;
       maxTokens = 16384;
       modePrompt = deepResearchPrompt + '\n' + webSearchPrompt + `
 
@@ -165,11 +201,11 @@ You are using BOTH Deep Research AND Web Search simultaneously. This means:
 - Cite sources from the web search results throughout your analysis.
 - This combined mode should produce the most comprehensive, well-sourced response possible.`;
     } else if (mode === 'deep-research') {
-      temperature = 0.3;
+      temperature = 0.6;
       maxTokens = 16384;
       modePrompt = deepResearchPrompt;
     } else if (mode === 'web-search') {
-      temperature = 0.5;
+      temperature = 0.6;
       maxTokens = 16384;
       modePrompt = webSearchPrompt;
     }
@@ -181,37 +217,81 @@ You are using BOTH Deep Research AND Web Search simultaneously. This means:
       ...messages
     ];
 
-    const payload = {
-      model: "moonshotai/kimi-k2.5",
+    // Try primary model first, then fallback
+    let response: Response | null = null;
+    let usedModel = PRIMARY_MODEL;
+
+    // Primary: kimi-k2-thinking (has reasoning/thinking support)
+    const primaryPayload = {
+      model: PRIMARY_MODEL,
       messages: apiMessages,
       max_tokens: maxTokens,
       temperature,
-      top_p: 0.95,
+      top_p: 1.0,
       stream: true,
-      chat_template_kwargs: { thinking: true },
     };
 
-    const response = await fetch(invokeUrl, {
-      method: 'POST',
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Accept": "text/event-stream",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      // @ts-ignore
-      cache: 'no-store',
-    });
+    try {
+      response = await tryFetchModel(invokeUrl, apiKey, primaryPayload, 30000);
+
+      // Check if the response actually started (not a silent queue)
+      if (!response.ok) {
+        console.error(`Primary model ${PRIMARY_MODEL} returned ${response.status}`);
+        response = null;
+      }
+    } catch (err: any) {
+      console.error(`Primary model ${PRIMARY_MODEL} failed:`, err.name === 'AbortError' ? 'timeout' : err.message);
+      response = null;
+    }
+
+    // Fallback: kimi-k2-instruct (no thinking but reliable)
+    if (!response) {
+      usedModel = FALLBACK_MODEL;
+      const fallbackPayload = {
+        model: FALLBACK_MODEL,
+        messages: apiMessages,
+        max_tokens: maxTokens,
+        temperature,
+        top_p: 1.0,
+        stream: true,
+      };
+
+      try {
+        response = await tryFetchModel(invokeUrl, apiKey, fallbackPayload, 60000);
+      } catch (fetchErr: any) {
+        if (fetchErr.name === 'AbortError') {
+          return NextResponse.json(
+            { error: 'All AI models timed out. The NVIDIA API may be overloaded. Please try again in a moment.' },
+            { status: 504 }
+          );
+        }
+        throw fetchErr;
+      }
+    }
 
     if (!response.ok) {
       const err = await response.text();
       console.error('NVIDIA API error:', response.status, err);
-      return NextResponse.json({ error: err }, { status: response.status });
+
+      let userMessage = err;
+      if (response.status === 401 || response.status === 403) {
+        userMessage = 'API key is invalid or expired. Please check your NVIDIA_API_KEY.';
+      } else if (response.status === 429) {
+        userMessage = 'Rate limited or API credits exhausted. Please wait and try again, or check your NVIDIA account credits.';
+      } else if (response.status === 402) {
+        userMessage = 'API credits exhausted. Please add credits to your NVIDIA account.';
+      } else if (response.status >= 500) {
+        userMessage = 'NVIDIA API server error. The model may be temporarily unavailable. Please try again.';
+      }
+
+      return NextResponse.json({ error: userMessage }, { status: response.status });
     }
 
     if (!response.body) {
       return NextResponse.json({ error: 'No response body from API' }, { status: 500 });
     }
+
+    console.log(`Using model: ${usedModel}`);
 
     // Relay the SSE stream
     const upstream = response.body;
@@ -222,28 +302,54 @@ You are using BOTH Deep Research AND Web Search simultaneously. This means:
         const reader = upstream.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let receivedAnyData = false;
+        let lastDataTime = Date.now();
 
         try {
           while (true) {
-            const { value, done } = await reader.read();
+            const readPromise = reader.read();
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              setTimeout(() => {
+                reject(new Error(
+                  receivedAnyData
+                    ? 'Stream interrupted: no data for 60 seconds'
+                    : 'No response from AI model within 60 seconds. Please try again.'
+                ));
+              }, 60000);
+            });
+
+            const { value, done } = await Promise.race([readPromise, timeoutPromise]);
             if (done) break;
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+            lastDataTime = Date.now();
+            receivedAnyData = true;
 
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed) continue;
-              controller.enqueue(encoder.encode(trimmed + '\n\n'));
+            if (value) {
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                controller.enqueue(encoder.encode(trimmed + '\n\n'));
+              }
             }
           }
 
           if (buffer.trim()) {
             controller.enqueue(encoder.encode(buffer.trim() + '\n\n'));
           }
-        } catch (e) {
-          console.error('Stream relay error:', e);
+        } catch (e: any) {
+          console.error('Stream relay error:', e.message);
+          const errorEvent = `data: ${JSON.stringify({
+            choices: [{
+              delta: { content: `\n\n[Error: ${e.message || 'Connection to AI model was lost'}. Please try again.]` },
+              finish_reason: 'error'
+            }]
+          })}\n\n`;
+          controller.enqueue(encoder.encode(errorEvent));
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         } finally {
           controller.close();
         }

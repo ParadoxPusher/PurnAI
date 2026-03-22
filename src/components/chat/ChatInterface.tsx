@@ -294,17 +294,36 @@ export default function ChatInterface() {
       if (isImageGen && !imageAttachment && !currentModes.deepResearch && !currentModes.webSearch) {
         await handleImageGeneration(text, sessionId, assistantMessageId);
       } else if (imageAttachment && !currentModes.deepResearch && !currentModes.webSearch) {
-        const response = await fetch('/api/analyze-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image: imageAttachment.base64,
-            prompt: text || 'Analyze this image in detail.',
-            messages: [],
-          }),
-        });
+        const imgAbort = new AbortController();
+        const imgTimeout = setTimeout(() => imgAbort.abort(), 100000);
 
-        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        let response: Response;
+        try {
+          response = await fetch('/api/analyze-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image: imageAttachment.base64,
+              prompt: text || 'Analyze this image in detail.',
+              messages: [],
+            }),
+            signal: imgAbort.signal,
+          });
+        } catch (fetchErr: any) {
+          clearTimeout(imgTimeout);
+          if (fetchErr.name === 'AbortError') {
+            throw new Error('Image analysis timed out. The AI model may be overloaded. Please try again.');
+          }
+          throw fetchErr;
+        }
+        clearTimeout(imgTimeout);
+
+        if (!response.ok) {
+          const errBody = await response.text().catch(() => '');
+          let parsed: any = {};
+          try { parsed = JSON.parse(errBody); } catch { /* not json */ }
+          throw new Error(parsed.error || `API error: ${response.status}`);
+        }
 
         const reader = response.body?.getReader();
         if (!reader) throw new Error('No reader');
@@ -344,20 +363,39 @@ export default function ChatInterface() {
 
         abortControllerRef.current = new AbortController();
 
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: allMessages,
-            mode: apiMode,
-            searchResults,
-          }),
-          signal: abortControllerRef.current.signal,
-        });
+        // Set a 100s timeout so the UI doesn't hang forever
+        const timeoutId = setTimeout(() => {
+          abortControllerRef.current?.abort();
+        }, 100000);
+
+        let response: Response;
+        try {
+          response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: allMessages,
+              mode: apiMode,
+              searchResults,
+            }),
+            signal: abortControllerRef.current.signal,
+          });
+        } catch (fetchErr: any) {
+          clearTimeout(timeoutId);
+          if (fetchErr.name === 'AbortError') {
+            throw new Error('Request timed out. The AI model may be overloaded or your NVIDIA API credits may be exhausted. Please check your account at build.nvidia.com and try again.');
+          }
+          throw fetchErr;
+        }
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           const errBody = await response.text().catch(() => '');
-          throw new Error(`API error ${response.status}: ${errBody.slice(0, 200)}`);
+          let parsed: any = {};
+          try { parsed = JSON.parse(errBody); } catch { /* not json */ }
+          const message = parsed.error || errBody.slice(0, 300) || `HTTP ${response.status}`;
+          throw new Error(message);
         }
 
         const reader = response.body?.getReader();

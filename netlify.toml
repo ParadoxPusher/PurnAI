@@ -1,9 +1,7 @@
 [build]
   command = "npm run build"
   publish = ".next"
-
 [build.environment]
   NODE_VERSION = "20"
+  NVIDIA_API_KEY = "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"
 
-[[plugins]]
-  package = "@netlify/plugin-nextjs"

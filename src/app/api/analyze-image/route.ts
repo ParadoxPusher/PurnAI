@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
 
+export const maxDuration = 120;
+
+// Kimi K2.5 is for multimodal (vision), fallback to K2 instruct for text-only analysis
+const PRIMARY_MODEL = 'moonshotai/kimi-k2-thinking';
+const FALLBACK_MODEL = 'moonshotai/kimi-k2-instruct';
+
 export async function POST(req: Request) {
   try {
     const { image, prompt, messages } = await req.json();
@@ -39,26 +45,67 @@ export async function POST(req: Request) {
       },
     ];
 
-    const payload = {
-      model: 'moonshotai/kimi-k2.5',
+    const makePayload = (model: string) => ({
+      model,
       messages: apiMessages,
       max_tokens: 4096,
-      temperature: 0.7,
+      temperature: 0.6,
+      top_p: 1.0,
       stream: true,
-      chat_template_kwargs: { thinking: true },
+    });
+
+    const tryModel = async (model: string, timeoutMs: number): Promise<Response> => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const resp = await fetch(invokeUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            Accept: 'text/event-stream',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(makePayload(model)),
+          signal: controller.signal,
+          // @ts-ignore
+          cache: 'no-store',
+        });
+        clearTimeout(timeoutId);
+        return resp;
+      } catch (err) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
     };
 
-    const response = await fetch(invokeUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'text/event-stream',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-      // @ts-ignore
-      cache: 'no-store',
-    });
+    let response: Response | null = null;
+
+    // Try primary model
+    try {
+      response = await tryModel(PRIMARY_MODEL, 30000);
+      if (!response.ok) {
+        console.error(`Primary model returned ${response.status}`);
+        response = null;
+      }
+    } catch (err: any) {
+      console.error(`Primary model failed:`, err.name === 'AbortError' ? 'timeout' : err.message);
+      response = null;
+    }
+
+    // Fallback
+    if (!response) {
+      try {
+        response = await tryModel(FALLBACK_MODEL, 60000);
+      } catch (fetchErr: any) {
+        if (fetchErr.name === 'AbortError') {
+          return NextResponse.json(
+            { error: 'AI models timed out. Please try again.' },
+            { status: 504 }
+          );
+        }
+        throw fetchErr;
+      }
+    }
 
     if (!response.ok) {
       const err = await response.text();
@@ -78,28 +125,48 @@ export async function POST(req: Request) {
         const reader = upstream.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        let receivedAnyData = false;
 
         try {
           while (true) {
-            const { value, done } = await reader.read();
+            const readPromise = reader.read();
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              setTimeout(() => {
+                reject(new Error('Stream timeout'));
+              }, 60000);
+            });
+
+            const { value, done } = await Promise.race([readPromise, timeoutPromise]);
             if (done) break;
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+            receivedAnyData = true;
 
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed) continue;
-              controller.enqueue(encoder.encode(trimmed + '\n\n'));
+            if (value) {
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                controller.enqueue(encoder.encode(trimmed + '\n\n'));
+              }
             }
           }
 
           if (buffer.trim()) {
             controller.enqueue(encoder.encode(buffer.trim() + '\n\n'));
           }
-        } catch (e) {
-          console.error('Stream relay error:', e);
+        } catch (e: any) {
+          console.error('Stream relay error:', e.message);
+          const errorEvent = `data: ${JSON.stringify({
+            choices: [{
+              delta: { content: `\n\n[Error: ${e.message || 'Connection lost'}. Please try again.]` },
+              finish_reason: 'error'
+            }]
+          })}\n\n`;
+          controller.enqueue(encoder.encode(errorEvent));
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         } finally {
           controller.close();
         }
