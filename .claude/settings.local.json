@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx next:*)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(head:*)",
+      "Bash(npm install:*)"
+    ]
+  }
+}
