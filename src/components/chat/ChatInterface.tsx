@@ -5,7 +5,9 @@ import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 import Sidebar from './Sidebar';
 import WelcomeScreen from './WelcomeScreen';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Shield } from 'lucide-react';
+
+export type AppMode = 'general' | 'purn-cop';
 
 export type ActiveModes = {
   deepResearch: boolean;
@@ -40,7 +42,8 @@ export type ChatSession = {
   createdAt: number;
 };
 
-export default function ChatInterface() {
+export default function ChatInterface({ mode = 'general' }: { mode?: AppMode }) {
+  const isCyber = mode === 'purn-cop';
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
@@ -97,6 +100,36 @@ export default function ChatInterface() {
     let assistantContent = '';
     let thinkingContent = '';
     let lineBuffer = '';
+    // Track whether we're inside a <think> block leaked into content
+    let insideThinkTag = false;
+
+    // Helper: process a content string that may contain <think>/<\/think> tags
+    const processContent = (text: string) => {
+      let remaining = text;
+      while (remaining.length > 0) {
+        if (insideThinkTag) {
+          const closeIdx = remaining.indexOf('</think>');
+          if (closeIdx !== -1) {
+            thinkingContent += remaining.slice(0, closeIdx);
+            remaining = remaining.slice(closeIdx + '</think>'.length);
+            insideThinkTag = false;
+          } else {
+            thinkingContent += remaining;
+            remaining = '';
+          }
+        } else {
+          const openIdx = remaining.indexOf('<think>');
+          if (openIdx !== -1) {
+            assistantContent += remaining.slice(0, openIdx);
+            remaining = remaining.slice(openIdx + '<think>'.length);
+            insideThinkTag = true;
+          } else {
+            assistantContent += remaining;
+            remaining = '';
+          }
+        }
+      }
+    };
 
     while (!done) {
       const { value, done: doneReading } = await reader.read();
@@ -124,7 +157,7 @@ export default function ChatInterface() {
                   updated = true;
                 }
                 if (delta.content) {
-                  assistantContent += delta.content;
+                  processContent(delta.content);
                   updated = true;
                 }
                 if (updated) {
@@ -154,7 +187,7 @@ export default function ChatInterface() {
           if (delta) {
             const reasoning = delta.reasoning_content || delta.reasoning;
             if (reasoning) thinkingContent += reasoning;
-            if (delta.content) assistantContent += delta.content;
+            if (delta.content) processContent(delta.content);
             updateSessionMessages(sessionId, msgs =>
               msgs.map(m =>
                 m.id === messageId
@@ -166,6 +199,12 @@ export default function ChatInterface() {
         } catch { /* ignore */ }
       }
     }
+
+    // Final cleanup: strip any residual <think>/<\/think> tags from content
+    assistantContent = assistantContent
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<\/?think>/gi, '')
+      .trim();
 
     return { assistantContent, thinkingContent };
   };
@@ -237,20 +276,20 @@ export default function ChatInterface() {
     let existingMessages: Message[] = [];
 
     if (!sessionId) {
-      let prefix = '';
-      if (currentModes.deepResearch && currentModes.webSearch) prefix = '[Research+Web] ';
-      else if (currentModes.deepResearch) prefix = '[Research] ';
-      else if (currentModes.webSearch) prefix = '[Web] ';
+      let prefix = isCyber ? '[Cyber] ' : '';
+      if (currentModes.deepResearch && currentModes.webSearch) prefix += '[Research+Web] ';
+      else if (currentModes.deepResearch) prefix += '[Research] ';
+      else if (currentModes.webSearch) prefix += '[Web] ';
       sessionId = createNewSession(prefix + (text.slice(0, 30) || 'New Chat'));
       existingMessages = [];
     } else {
       const currentSession = sessionsRef.current.find(s => s.id === sessionId);
       existingMessages = currentSession?.messages || [];
       if (existingMessages.length === 0) {
-        let prefix = '';
-        if (currentModes.deepResearch && currentModes.webSearch) prefix = '[Research+Web] ';
-        else if (currentModes.deepResearch) prefix = '[Research] ';
-        else if (currentModes.webSearch) prefix = '[Web] ';
+        let prefix = isCyber ? '[Cyber] ' : '';
+        if (currentModes.deepResearch && currentModes.webSearch) prefix += '[Research+Web] ';
+        else if (currentModes.deepResearch) prefix += '[Research] ';
+        else if (currentModes.webSearch) prefix += '[Web] ';
         updateSessionTitle(sessionId, prefix + text.slice(0, 30));
       }
     }
@@ -377,6 +416,7 @@ export default function ChatInterface() {
               messages: allMessages,
               mode: apiMode,
               searchResults,
+              context: mode,
             }),
             signal: abortControllerRef.current.signal,
           });
@@ -404,7 +444,24 @@ export default function ChatInterface() {
         const { assistantContent } = await parseStreamResponse(reader, sessionId, assistantMessageId);
 
         // Check for image-gen block
-        const imageGenMatch = assistantContent.match(/```json image-gen\s*([\s\S]*?)```/);
+        let imageGenMatch = assistantContent.match(/```json\s*image-gen\s*([\s\S]*?)```/i);
+        
+        if (!imageGenMatch) {
+          const fallbackRegex = /```(?:json)?\s*([\s\S]*?)```/g;
+          let m;
+          while ((m = fallbackRegex.exec(assistantContent)) !== null) {
+            try {
+              const parsed = JSON.parse(m[1].trim());
+              if (parsed && parsed.prompt && Object.keys(parsed).length === 1) {
+                imageGenMatch = m;
+                break;
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+
         if (imageGenMatch) {
           try {
             const imageData = JSON.parse(imageGenMatch[1].trim());
@@ -474,10 +531,11 @@ export default function ChatInterface() {
         onDeleteSession={deleteSession}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        mode={mode}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 relative">
-        <header className="flex items-center h-12 px-4 border-b border-gray-800/50 bg-[#121212] sticky top-0 z-10">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative">
+        <header className="flex-shrink-0 flex items-center h-12 px-4 border-b border-gray-800/50 bg-[#121212] z-10">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="p-1.5 rounded-lg hover:bg-gray-800 transition-colors mr-3"
@@ -485,8 +543,14 @@ export default function ChatInterface() {
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
           <span className="text-sm font-medium text-gray-300 truncate">
-            {activeSession?.title || 'Purn AI'}
+            {activeSession?.title || (isCyber ? 'Purn Cop' : 'Purn AI')}
           </span>
+          {isCyber && (
+            <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+              <Shield size={10} />
+              Cybersecurity
+            </span>
+          )}
           {activeModes.deepResearch && (
             <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-400 border border-amber-500/30">
               Deep Research
@@ -499,17 +563,17 @@ export default function ChatInterface() {
           )}
         </header>
 
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto min-h-0 overscroll-contain">
           <div className="max-w-3xl mx-auto px-4 py-6">
             {messages.length === 0 ? (
-              <WelcomeScreen onFeatureClick={handleFeatureClick} onSend={handleSend} />
+              <WelcomeScreen onFeatureClick={handleFeatureClick} onSend={handleSend} mode={mode} />
             ) : (
-              <MessageList messages={messages} />
+              <MessageList messages={messages} mode={mode} />
             )}
           </div>
         </main>
 
-        <div className="w-full bg-gradient-to-t from-[#121212] via-[#121212]/95 to-transparent pt-2 pb-4">
+        <div className="flex-shrink-0 w-full bg-gradient-to-t from-[#121212] via-[#121212]/95 to-transparent pt-2 pb-4">
           <div className="max-w-3xl mx-auto px-4">
             <ChatInput
               input={input}
@@ -521,9 +585,10 @@ export default function ChatInterface() {
               onFeatureClick={handleFeatureClick}
               activeModes={activeModes}
               setActiveModes={setActiveModes}
+              mode={mode}
             />
             <p className="text-xs text-center text-gray-500 mt-2">
-              Purn AI can make mistakes. Consider verifying important information.
+              {isCyber ? 'Purn Cop - Cybersecurity Mode' : 'Purn AI can make mistakes. Consider verifying important information.'}
             </p>
           </div>
         </div>

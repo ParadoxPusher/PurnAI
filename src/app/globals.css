@@ -56,3 +56,205 @@ code {
 textarea:focus {
   outline: none;
 }
+
+/* ── AI Response Styling ── */
+
+/* Headings — large, bold, with generous spacing */
+.ai-response h1 {
+  font-size: 2rem !important;
+  font-weight: 800 !important;
+  margin-top: 2rem !important;
+  margin-bottom: 1rem !important;
+  line-height: 1.25 !important;
+  color: #f8fafc !important;
+  letter-spacing: -0.025em;
+  background: linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #c084fc 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.ai-response h2 {
+  font-size: 1.6rem !important;
+  font-weight: 750 !important;
+  margin-top: 2rem !important;
+  margin-bottom: 0.875rem !important;
+  line-height: 1.3 !important;
+  color: #e2e8f0 !important;
+  letter-spacing: -0.02em;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid rgba(129, 140, 248, 0.2);
+}
+
+.ai-response h3 {
+  font-size: 1.35rem !important;
+  font-weight: 700 !important;
+  margin-top: 1.75rem !important;
+  margin-bottom: 0.75rem !important;
+  line-height: 1.35 !important;
+  color: #cbd5e1 !important;
+  letter-spacing: -0.01em;
+}
+
+.ai-response h4 {
+  font-size: 1.15rem !important;
+  font-weight: 650 !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.625rem !important;
+  line-height: 1.4 !important;
+  color: #94a3b8 !important;
+}
+
+/* First heading shouldn't have extra top margin */
+.ai-response > h1:first-child,
+.ai-response > h2:first-child,
+.ai-response > h3:first-child,
+.ai-response > h4:first-child {
+  margin-top: 0.25rem !important;
+}
+
+/* Spacing between heading and following paragraph */
+.ai-response h1 + p,
+.ai-response h2 + p,
+.ai-response h3 + p,
+.ai-response h4 + p {
+  margin-top: 0.75rem !important;
+}
+
+/* Paragraphs — generous line spacing and gaps */
+.ai-response p {
+  margin-top: 0.625rem !important;
+  margin-bottom: 1rem !important;
+  line-height: 1.85 !important;
+  color: #d1d5db !important;
+}
+
+/* Lists */
+.ai-response ul,
+.ai-response ol {
+  margin-top: 0.75rem !important;
+  margin-bottom: 1rem !important;
+  padding-left: 1.5rem !important;
+}
+
+.ai-response li {
+  margin-top: 0.375rem !important;
+  margin-bottom: 0.375rem !important;
+  line-height: 1.8 !important;
+  color: #d1d5db !important;
+}
+
+.ai-response li > p {
+  margin-top: 0.2rem !important;
+  margin-bottom: 0.2rem !important;
+}
+
+/* Nested lists */
+.ai-response li > ul,
+.ai-response li > ol {
+  margin-top: 0.375rem !important;
+  margin-bottom: 0.375rem !important;
+}
+
+/* Blockquotes — stylish callout card */
+.ai-response blockquote {
+  margin-top: 1.25rem !important;
+  margin-bottom: 1.25rem !important;
+  padding: 1rem 1.25rem !important;
+  border-left: 4px solid #818cf8 !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+  border-radius: 0 0.75rem 0.75rem 0 !important;
+  color: #c7d2fe !important;
+  font-style: normal !important;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.06);
+}
+
+.ai-response blockquote p {
+  color: #c7d2fe !important;
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+/* Horizontal rules — decorative divider */
+.ai-response hr {
+  margin-top: 2rem !important;
+  margin-bottom: 2rem !important;
+  border: none !important;
+  height: 1px !important;
+  background: linear-gradient(90deg, transparent, rgba(129, 140, 248, 0.3), rgba(192, 132, 252, 0.3), transparent) !important;
+}
+
+/* Code blocks */
+.ai-response pre {
+  margin-top: 1rem !important;
+  margin-bottom: 1rem !important;
+}
+
+.ai-response :not(pre) > code {
+  background: rgba(99, 102, 241, 0.15) !important;
+  color: #a5b4fc !important;
+  padding: 0.2rem 0.45rem !important;
+  border-radius: 0.35rem !important;
+  font-size: 0.85em !important;
+  font-weight: 500 !important;
+}
+
+/* Tables */
+.ai-response table {
+  margin-top: 1rem !important;
+  margin-bottom: 1rem !important;
+  border-collapse: collapse !important;
+  width: 100% !important;
+  border-radius: 0.5rem !important;
+  overflow: hidden !important;
+}
+
+.ai-response th {
+  background: rgba(99, 102, 241, 0.12) !important;
+  color: #c7d2fe !important;
+  font-weight: 650 !important;
+  padding: 0.625rem 0.875rem !important;
+  text-align: left !important;
+  border-bottom: 2px solid rgba(99, 102, 241, 0.25) !important;
+}
+
+.ai-response td {
+  padding: 0.625rem 0.875rem !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1) !important;
+  color: #d1d5db !important;
+}
+
+.ai-response tr:hover td {
+  background: rgba(99, 102, 241, 0.04) !important;
+}
+
+/* Strong / Bold — slightly brighter */
+.ai-response strong {
+  color: #f1f5f9 !important;
+  font-weight: 700 !important;
+}
+
+/* Links */
+.ai-response a {
+  color: #818cf8 !important;
+  text-decoration: underline !important;
+  text-decoration-color: rgba(129, 140, 248, 0.3) !important;
+  text-underline-offset: 3px !important;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.ai-response a:hover {
+  color: #a5b4fc !important;
+  text-decoration-color: rgba(165, 180, 252, 0.6) !important;
+}
+
+/* Images from web search */
+.ai-response img {
+  max-width: 100% !important;
+  max-height: 400px !important;
+  border-radius: 0.75rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.15) !important;
+  margin: 1rem 0 !important;
+  object-fit: contain !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3) !important;
+}

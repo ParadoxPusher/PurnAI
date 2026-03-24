@@ -1,8 +1,10 @@
 'use client';
 
 import React from 'react';
-import { Plus, MessageSquare, Trash2, Sparkles } from 'lucide-react';
-import { ChatSession } from './ChatInterface';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Plus, MessageSquare, Trash2, Sparkles, Shield } from 'lucide-react';
+import { ChatSession, AppMode } from './ChatInterface';
 
 interface SidebarProps {
   sessions: ChatSession[];
@@ -12,6 +14,7 @@ interface SidebarProps {
   onDeleteSession: (id: string) => void;
   isOpen: boolean;
   onClose: () => void;
+  mode?: AppMode;
 }
 
 export default function Sidebar({
@@ -22,7 +25,9 @@ export default function Sidebar({
   onDeleteSession,
   isOpen,
   onClose,
+  mode = 'general',
 }: SidebarProps) {
+  const pathname = usePathname();
   if (!isOpen) return null;
 
   return (
@@ -40,6 +45,34 @@ export default function Sidebar({
             <img src="/logo.png" alt="Purn AI Logo" className="w-8 h-8 rounded-lg object-cover" />
             <span className="font-semibold text-base">Purn AI</span>
           </div>
+
+          {/* Navigation links */}
+          <div className="flex flex-col gap-0.5">
+            <Link
+              href="/"
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
+                pathname === '/'
+                  ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'
+              }`}
+            >
+              <Sparkles size={16} />
+              Purn AI
+            </Link>
+            <Link
+              href="/purn-cop"
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
+                pathname === '/purn-cop'
+                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                  : 'text-gray-400 hover:bg-gray-800/60 hover:text-gray-200'
+              }`}
+            >
+              <Shield size={16} />
+              Purn Cop
+            </Link>
+          </div>
+
+          <div className="border-t border-gray-800/50 my-1" />
 
           <button
             onClick={() => {

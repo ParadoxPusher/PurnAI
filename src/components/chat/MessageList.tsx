@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Message, ActiveModes } from './ChatInterface';
+import { Message, ActiveModes, AppMode } from './ChatInterface';
 import {
   Sparkles, ChevronDown, ChevronUp, Loader2, User,
-  Image as ImageIcon, FlaskConical, Globe, ExternalLink, Search,
+  Image as ImageIcon, FlaskConical, Globe, ExternalLink, Search, Shield,
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -166,52 +166,97 @@ function extractDocGen(content: string): {
 } {
   if (!content) return { cleanContent: '', docData: null, isGenerating: false };
 
-  const matchStart = content.indexOf('```json doc-gen');
-  if (matchStart === -1) return { cleanContent: content, docData: null, isGenerating: false };
+  // First try strict match ```json doc-gen
+  let regex = /```json\s*doc-gen\s*([\s\S]*?)```/i;
+  let match = content.match(regex);
 
-  const matchEnd = content.indexOf('```', matchStart + 15);
+  // If not found, try finding a json block that has "type": "pdf" | "ppt" | "document"
+  if (!match) {
+    const fallbackRegex = /```(?:json)?\s*([\s\S]*?)```/i;
+    // We might have multiple code blocks. We should check all of them.
+    const allMatches = content.matchAll(new RegExp(fallbackRegex.source, 'gi'));
+    for (const m of allMatches) {
+      try {
+        const parsed = JSON.parse(m[1].trim());
+        if (parsed && (parsed.type === 'pdf' || parsed.type === 'ppt' || parsed.type === 'document')) {
+          match = m;
+          // Create a specific regex to replace just this block
+          regex = new RegExp(m[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), '');
+          break;
+        }
+      } catch {
+        // Not a valid doc-gen JSON block
+      }
+    }
+  }
 
-  if (matchEnd === -1) {
-    const cleanContent = content.substring(0, matchStart).trim();
+  if (match) {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(match[1].trim());
+    } catch {
+      console.error('Failed to parse doc-gen block');
+    }
+    const cleanContent = content.replace(regex, '').trim();
+    return { cleanContent, docData: parsed, isGenerating: false };
+  }
+
+  // Check if it's currently generating
+  const partialRegex1 = /```json\s*doc-gen/i;
+  const partialRegex2 = /```(?:json)?\s*\{\s*"type"\s*:\s*"(?:pdf|ppt|document)"/i;
+  
+  const partialMatch1 = content.search(partialRegex1);
+  const partialMatch2 = content.search(partialRegex2);
+  const matchIdx = partialMatch1 !== -1 ? partialMatch1 : partialMatch2;
+
+  if (matchIdx !== -1) {
+    const cleanContent = content.substring(0, matchIdx).trim();
     return { cleanContent, docData: null, isGenerating: true };
   }
 
-  const jsonStr = content.substring(matchStart + 15, matchEnd).trim();
-  let parsed = null;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch {
-    console.error('Failed to parse doc-gen block');
-  }
-
-  const cleanContent = (content.substring(0, matchStart) + content.substring(matchEnd + 3)).trim();
-  return { cleanContent, docData: parsed, isGenerating: false };
+  return { cleanContent: content, docData: null, isGenerating: false };
 }
 
 function extractImageGen(content: string): { cleanContent: string; imagePrompt: string | null } {
   if (!content) return { cleanContent: '', imagePrompt: null };
 
-  const matchStart = content.indexOf('```json image-gen');
-  if (matchStart === -1) return { cleanContent: content, imagePrompt: null };
+  let regex = /```json\s*image-gen\s*([\s\S]*?)```/i;
+  let match = content.match(regex);
 
-  const matchEnd = content.indexOf('```', matchStart + 17);
-  if (matchEnd === -1) return { cleanContent: content.substring(0, matchStart).trim(), imagePrompt: null };
-
-  const jsonStr = content.substring(matchStart + 17, matchEnd).trim();
-  let prompt = null;
-  try {
-    const parsed = JSON.parse(jsonStr);
-    prompt = parsed.prompt;
-  } catch {
-    // ignore
+  if (!match) {
+    const fallbackRegex = /```(?:json)?\s*([\s\S]*?)```/i;
+    const allMatches = content.matchAll(new RegExp(fallbackRegex.source, 'gi'));
+    for (const m of allMatches) {
+      try {
+        const parsed = JSON.parse(m[1].trim());
+        if (parsed && parsed.prompt && Object.keys(parsed).length === 1) { // Likely image gen
+          match = m;
+          regex = new RegExp(m[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), '');
+          break;
+        }
+      } catch {
+        // ignore
+      }
+    }
   }
 
-  const cleanContent = (content.substring(0, matchStart) + content.substring(matchEnd + 3)).trim();
-  return { cleanContent, imagePrompt: prompt };
+  if (match) {
+    let prompt = null;
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      prompt = parsed.prompt;
+    } catch {
+      // ignore
+    }
+    const cleanContent = content.replace(regex, '').trim();
+    return { cleanContent, imagePrompt: prompt };
+  }
+
+  return { cleanContent: content, imagePrompt: null };
 }
 
-// Helper to get avatar styles based on modes
-function getAvatarStyles(modes?: ActiveModes) {
+// Helper to get avatar styles based on modes and app mode
+function getAvatarStyles(modes?: ActiveModes, appMode?: AppMode) {
   const hasDeep = modes?.deepResearch;
   const hasWeb = modes?.webSearch;
 
@@ -233,25 +278,75 @@ function getAvatarStyles(modes?: ActiveModes) {
       icon: <Globe size={13} className="text-white" />,
     };
   }
+  if (appMode === 'purn-cop') {
+    return {
+      bg: 'bg-gradient-to-br from-emerald-500 to-cyan-600',
+      icon: <Shield size={13} className="text-white" />,
+    };
+  }
   return {
     bg: 'bg-gradient-to-br from-blue-500 to-violet-600',
     icon: <Sparkles size={14} className="text-white" />,
   };
 }
 
-export default function MessageList({ messages }: { messages: Message[] }) {
+export default function MessageList({ messages, mode = 'general' }: { messages: Message[]; mode?: AppMode }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isStreamingRef = useRef(false);
+  const scrollFrameRef = useRef<number | null>(null);
 
+  // Detect if any message is currently streaming
+  const isAnyStreaming = messages.some(m => m.isStreaming);
+
+  // Scroll to bottom helper
+  const scrollToBottom = useCallback(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
+
+  // Scroll on new messages (user sent or assistant placeholder added)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    scrollToBottom();
+  }, [messages.length, scrollToBottom]);
+
+  // Continuous scroll during streaming using rAF loop
+  useEffect(() => {
+    if (isAnyStreaming) {
+      isStreamingRef.current = true;
+      const tick = () => {
+        if (!isStreamingRef.current) return;
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+        }
+        scrollFrameRef.current = requestAnimationFrame(tick);
+      };
+      scrollFrameRef.current = requestAnimationFrame(tick);
+    } else {
+      isStreamingRef.current = false;
+      if (scrollFrameRef.current) {
+        cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+      // Final smooth scroll when streaming ends
+      scrollToBottom();
+    }
+
+    return () => {
+      isStreamingRef.current = false;
+      if (scrollFrameRef.current) {
+        cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+    };
+  }, [isAnyStreaming, scrollToBottom]);
 
   return (
     <div className="flex flex-col space-y-6 w-full pb-4">
       {messages.map((message) => {
         const { cleanContent, docData, isGenerating } = extractDocGen(message.content);
         const { cleanContent: finalContent } = extractImageGen(cleanContent);
-        const avatarInfo = getAvatarStyles(message.modes);
+        const avatarInfo = getAvatarStyles(message.modes, mode);
 
         return (
           <div
@@ -285,7 +380,7 @@ export default function MessageList({ messages }: { messages: Message[] }) {
                 {/* Role label with mode badges */}
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs font-medium text-gray-400">
-                    {message.role === 'assistant' ? 'Purn AI' : 'You'}
+                    {message.role === 'assistant' ? (mode === 'purn-cop' ? 'Purn Cop' : 'Purn AI') : 'You'}
                   </span>
                   {message.role === 'user' && message.modes?.deepResearch && (
                     <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-400">
@@ -346,13 +441,34 @@ export default function MessageList({ messages }: { messages: Message[] }) {
                       'text-[15px] leading-relaxed',
                       message.role === 'user'
                         ? 'bg-[#2F2F2F] rounded-2xl rounded-tr-sm px-4 py-3 text-gray-100'
-                        : 'prose prose-invert prose-sm max-w-full prose-p:leading-relaxed prose-pre:rounded-xl prose-pre:bg-[#1A1A1C] prose-pre:border prose-pre:border-gray-800 break-words overflow-x-auto'
+                        : 'ai-response prose prose-invert prose-base max-w-full prose-p:leading-relaxed prose-pre:rounded-xl prose-pre:bg-[#1A1A1C] prose-pre:border prose-pre:border-gray-800 break-words overflow-x-auto'
                     )}
                   >
                     {message.role === 'user' ? (
                       <p className="whitespace-pre-wrap">{finalContent}</p>
                     ) : (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          img: ({ src, alt }) => (
+                            <span className="block my-4">
+                              <img
+                                src={src}
+                                alt={alt || ''}
+                                className="max-w-full rounded-xl border border-gray-700/50 shadow-md"
+                                style={{ maxHeight: '400px', objectFit: 'contain' }}
+                                loading="lazy"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                              {alt && (
+                                <span className="block text-xs text-gray-500 mt-1.5 italic">{alt}</span>
+                              )}
+                            </span>
+                          ),
+                        }}
+                      >
                         {finalContent}
                       </ReactMarkdown>
                     )}

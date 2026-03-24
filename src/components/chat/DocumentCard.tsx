@@ -73,7 +73,7 @@ function StyledPdfRender({ data, hiddenRef }: { data: DocGenData; hiddenRef: Rea
       <div
         ref={hiddenRef}
         style={{
-          width: '800px',
+          width: '816px',
           fontFamily: "'Segoe UI', 'Helvetica Neue', Arial, sans-serif",
           backgroundColor: '#ffffff',
           color: '#1a1a2e',
@@ -84,7 +84,7 @@ function StyledPdfRender({ data, hiddenRef }: { data: DocGenData; hiddenRef: Rea
         {/* Cover header bar */}
         <div style={{
           background: 'linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)',
-          padding: '48px 56px 40px',
+          padding: '48px 64px 40px',
           color: '#ffffff',
         }}>
           <div style={{
@@ -114,14 +114,14 @@ function StyledPdfRender({ data, hiddenRef }: { data: DocGenData; hiddenRef: Rea
         </div>
 
         {/* Content body */}
-        <div style={{ padding: '40px 56px 56px' }}>
+        <div style={{ padding: '40px 64px 56px' }}>
           <PdfMarkdownRenderer content={data.content || ''} />
         </div>
 
         {/* Footer */}
         <div style={{
           borderTop: '1px solid #e2e8f0',
-          padding: '16px 56px',
+          padding: '16px 64px',
           display: 'flex',
           justifyContent: 'space-between',
           fontSize: '10px',
@@ -264,6 +264,28 @@ function PdfMarkdownRenderer({ content }: { content: string }) {
               color: '#2563eb', textDecoration: 'underline',
             }}>{children}</a>
           ),
+          img: ({ src, alt }) => (
+            <span style={{ display: 'block', margin: '16px 0', textAlign: 'center' }}>
+              <img
+                src={src}
+                alt={alt || ''}
+                crossOrigin="anonymous"
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '350px',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  objectFit: 'contain',
+                }}
+              />
+              {alt && (
+                <span style={{
+                  display: 'block', fontSize: '11px', color: '#94a3b8',
+                  marginTop: '6px', fontStyle: 'italic',
+                }}>{alt}</span>
+              )}
+            </span>
+          ),
         }}
       >
         {content}
@@ -382,22 +404,58 @@ export default function DocumentCard({ data }: { data: DocGenData }) {
       });
 
       const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
+      // A4 size with narrow margins
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const ratio = pdfWidth / canvas.width;
+      // Narrow margins: ~0.5 inch (12.7mm) sides, ~0.4 inch (10mm) top/bottom
+      const marginLeft = 12.7;
+      const marginRight = 12.7;
+      const marginTop = 10;
+      const marginBottom = 10;
+
+      const pageWidth = pdf.internal.pageSize.getWidth();   // 210 mm
+      const pageHeight = pdf.internal.pageSize.getHeight();  // 297 mm
+      const contentWidth = pageWidth - marginLeft - marginRight;
+      const contentHeight = pageHeight - marginTop - marginBottom;
+
+      const ratio = contentWidth / canvas.width;
       const scaledHeight = canvas.height * ratio;
 
       let heightLeft = scaledHeight;
-      let position = 0;
+      let srcY = 0;
       let page = 0;
 
       while (heightLeft > 0) {
-        if (page > 0) pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, scaledHeight);
-        heightLeft -= pdfHeight;
-        position -= pdfHeight;
+        if (page > 0) pdf.addPage('a4', 'portrait');
+
+        // Height of source strip for this page (in canvas pixels)
+        const stripHeightMm = Math.min(contentHeight, heightLeft);
+        const stripHeightPx = stripHeightMm / ratio;
+
+        // Create a canvas for just this page's strip
+        const stripCanvas = document.createElement('canvas');
+        stripCanvas.width = canvas.width;
+        stripCanvas.height = Math.ceil(stripHeightPx);
+        const ctx = stripCanvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
+          ctx.drawImage(
+            canvas,
+            0, Math.floor(srcY), canvas.width, Math.ceil(stripHeightPx),
+            0, 0, stripCanvas.width, Math.ceil(stripHeightPx)
+          );
+        }
+
+        const stripImg = stripCanvas.toDataURL('image/png');
+        pdf.addImage(
+          stripImg, 'PNG',
+          marginLeft, marginTop,
+          contentWidth, stripHeightMm
+        );
+
+        srcY += stripHeightPx;
+        heightLeft -= contentHeight;
         page++;
       }
 
@@ -634,25 +692,39 @@ export default function DocumentCard({ data }: { data: DocGenData }) {
         if (result?.success) { setSaved(true); setSavedPath(result.filePath); }
         else alert('Failed to save PPT.');
       } else if (data.type === 'pdf') {
-        // For PDF: generate and save the actual pdf binary
+        // For PDF: generate and save the actual pdf binary (A4 with narrow margins)
         const jsPDFModule = await import('jspdf');
         const jsPDF = jsPDFModule.default;
         const html2canvas = (await import('html2canvas')).default;
         if (hiddenContentRef.current) {
           const canvas = await html2canvas(hiddenContentRef.current, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-          const pdf = new jsPDF({ orientation: 'portrait', unit: 'px', format: 'a4' });
-          const pdfWidth = pdf.internal.pageSize.getWidth();
-          const pdfHeight = pdf.internal.pageSize.getHeight();
-          const ratio = pdfWidth / canvas.width;
+          const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+          const marginLeft = 12.7, marginRight = 12.7, marginTop = 10, marginBottom = 10;
+          const pageWidth = pdf.internal.pageSize.getWidth();
+          const pageHeight = pdf.internal.pageSize.getHeight();
+          const contentWidth = pageWidth - marginLeft - marginRight;
+          const contentHeight = pageHeight - marginTop - marginBottom;
+          const ratio = contentWidth / canvas.width;
           const scaledHeight = canvas.height * ratio;
           let heightLeft = scaledHeight;
-          let position = 0;
+          let srcY = 0;
           let page = 0;
           while (heightLeft > 0) {
-            if (page > 0) pdf.addPage();
-            pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, position, pdfWidth, scaledHeight);
-            heightLeft -= pdfHeight;
-            position -= pdfHeight;
+            if (page > 0) pdf.addPage('a4', 'portrait');
+            const stripHeightMm = Math.min(contentHeight, heightLeft);
+            const stripHeightPx = stripHeightMm / ratio;
+            const stripCanvas = document.createElement('canvas');
+            stripCanvas.width = canvas.width;
+            stripCanvas.height = Math.ceil(stripHeightPx);
+            const ctx = stripCanvas.getContext('2d');
+            if (ctx) {
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
+              ctx.drawImage(canvas, 0, Math.floor(srcY), canvas.width, Math.ceil(stripHeightPx), 0, 0, stripCanvas.width, Math.ceil(stripHeightPx));
+            }
+            pdf.addImage(stripCanvas.toDataURL('image/png'), 'PNG', marginLeft, marginTop, contentWidth, stripHeightMm);
+            srcY += stripHeightPx;
+            heightLeft -= contentHeight;
             page++;
           }
           const base64 = pdf.output('datauristring').split(',')[1];

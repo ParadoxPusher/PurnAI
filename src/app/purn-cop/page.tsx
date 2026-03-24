@@ -1,5 +1,5 @@
-import ChatInterface from '@/components/chat/ChatInterface';
 import type { Metadata } from 'next';
+import PurnCopClient from './PurnCopClient';
 
 export const metadata: Metadata = {
   title: 'Purn Cop - Cybersecurity Assistant',
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function PurnCopPage() {
-  return <ChatInterface mode="purn-cop" />;
+  return <PurnCopClient />;
 }

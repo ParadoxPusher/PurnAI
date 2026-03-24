@@ -14,7 +14,7 @@ import {
   FlaskConical,
   Globe,
 } from 'lucide-react';
-import { UploadedFile, ActiveModes } from './ChatInterface';
+import { UploadedFile, ActiveModes, AppMode } from './ChatInterface';
 
 interface ChatInputProps {
   input: string;
@@ -26,6 +26,7 @@ interface ChatInputProps {
   onFeatureClick: (feature: string) => void;
   activeModes: ActiveModes;
   setActiveModes: (modes: ActiveModes | ((prev: ActiveModes) => ActiveModes)) => void;
+  mode?: AppMode;
 }
 
 const featureButtons = [
@@ -33,6 +34,14 @@ const featureButtons = [
   { id: 'document', icon: FileText, label: 'Document', color: 'text-blue-400' },
   { id: 'ppt', icon: Presentation, label: 'PPT', color: 'text-orange-400' },
   { id: 'code', icon: Code2, label: 'Code', color: 'text-green-400' },
+  { id: 'analyze', icon: ScanSearch, label: 'Analyze', color: 'text-rose-400' },
+];
+
+const cyberFeatureButtons = [
+  { id: 'image', icon: ImageIcon, label: 'Create Image', color: 'text-purple-400' },
+  { id: 'document', icon: FileText, label: 'Security Report', color: 'text-emerald-400' },
+  { id: 'ppt', icon: Presentation, label: 'Briefing', color: 'text-green-400' },
+  { id: 'code', icon: Code2, label: 'Security Script', color: 'text-teal-400' },
   { id: 'analyze', icon: ScanSearch, label: 'Analyze', color: 'text-rose-400' },
 ];
 
@@ -46,7 +55,10 @@ export default function ChatInput({
   onFeatureClick,
   activeModes,
   setActiveModes,
+  mode = 'general',
 }: ChatInputProps) {
+  const isCyber = mode === 'purn-cop';
+  const activeButtons = isCyber ? cyberFeatureButtons : featureButtons;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -134,14 +146,14 @@ export default function ChatInput({
     if (activeModes.webSearch) {
       return 'Search the web and get AI-powered answers...';
     }
-    return 'Message Purn AI...';
+    return isCyber ? 'Ask Purn Cop about cybersecurity...' : 'Message Purn AI...';
   };
 
   return (
     <div className="space-y-2">
       {/* Feature action buttons row */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 px-1">
-        {featureButtons.map(btn => {
+        {activeButtons.map(btn => {
           const Icon = btn.icon;
           return (
             <button

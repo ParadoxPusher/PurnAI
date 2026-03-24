@@ -10,11 +10,18 @@ import {
   ScanSearch,
   FlaskConical,
   Globe,
+  Shield,
+  Search,
+  Bug,
+  ScrollText,
+  Terminal,
 } from 'lucide-react';
+import { AppMode } from './ChatInterface';
 
 interface WelcomeScreenProps {
   onFeatureClick: (feature: string) => void;
   onSend: (text: string) => void;
+  mode?: AppMode;
 }
 
 const features = [
@@ -76,26 +83,83 @@ const quickPrompts = [
   'What are the latest trends in AI?',
 ];
 
-export default function WelcomeScreen({ onFeatureClick, onSend }: WelcomeScreenProps) {
+const cyberFeatures = [
+  {
+    id: 'deep-research',
+    label: 'Deep Research',
+    icon: FlaskConical,
+    bgColor: 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/20 text-amber-400',
+    description: 'Extended reasoning & analysis',
+  },
+  {
+    id: 'web-search',
+    label: 'Threat Intel Search',
+    icon: Search,
+    bgColor: 'bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/20 text-cyan-400',
+    description: 'Search for threat intelligence',
+  },
+  {
+    id: 'document',
+    label: 'Security Report',
+    icon: ScrollText,
+    bgColor: 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/20 text-emerald-400',
+    description: 'Generate security reports',
+  },
+  {
+    id: 'ppt',
+    label: 'Security Briefing',
+    icon: Presentation,
+    bgColor: 'bg-green-500/10 hover:bg-green-500/20 border-green-500/20 text-green-400',
+    description: 'Create security briefings',
+  },
+  {
+    id: 'code',
+    label: 'Security Script',
+    icon: Terminal,
+    bgColor: 'bg-teal-500/10 hover:bg-teal-500/20 border-teal-500/20 text-teal-400',
+    description: 'Generate security scripts',
+  },
+];
+
+const cyberQuickPrompts = [
+  'Perform a vulnerability analysis on a web application',
+  'Create an incident response plan for ransomware',
+  'Map an attack to MITRE ATT&CK framework',
+  'Generate a security audit checklist for cloud infrastructure',
+];
+
+export default function WelcomeScreen({ onFeatureClick, onSend, mode = 'general' }: WelcomeScreenProps) {
+  const isCyber = mode === 'purn-cop';
+  const activeFeatures = isCyber ? cyberFeatures : features;
+  const activePrompts = isCyber ? cyberQuickPrompts : quickPrompts;
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[65vh] text-center space-y-8 animate-in fade-in duration-500">
       {/* Logo */}
       <div className="relative">
-        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-violet-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-          <Sparkles size={32} className="text-white" />
+        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg ${
+          isCyber
+            ? 'bg-gradient-to-br from-emerald-500 to-cyan-600 shadow-emerald-500/20'
+            : 'bg-gradient-to-br from-blue-500 to-violet-600 shadow-blue-500/20'
+        }`}>
+          {isCyber ? <Shield size={32} className="text-white" /> : <Sparkles size={32} className="text-white" />}
         </div>
       </div>
 
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">What can I help with?</h1>
+        <h1 className="text-3xl font-bold tracking-tight">
+          {isCyber ? 'Purn Cop' : 'What can I help with?'}
+        </h1>
         <p className="text-gray-400 text-sm max-w-md">
-          Chat, research deeply, search the web, create documents, generate code, and more.
+          {isCyber
+            ? 'Your cybersecurity expert — threat analysis, incident response, forensics, compliance, and security documentation.'
+            : 'Chat, research deeply, search the web, create documents, generate code, and more.'}
         </p>
       </div>
 
       {/* Feature chips */}
       <div className="flex flex-wrap gap-2 justify-center max-w-xl">
-        {features.map(feature => {
+        {activeFeatures.map(feature => {
           const Icon = feature.icon;
           return (
             <button
@@ -112,11 +176,15 @@ export default function WelcomeScreen({ onFeatureClick, onSend }: WelcomeScreenP
 
       {/* Quick prompts */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-lg w-full">
-        {quickPrompts.map((prompt, i) => (
+        {activePrompts.map((prompt, i) => (
           <button
             key={i}
             onClick={() => onSend(prompt)}
-            className="text-left px-4 py-3 rounded-xl border border-gray-800 bg-gray-800/30 hover:bg-gray-800/60 transition-colors text-sm text-gray-300 hover:text-gray-100"
+            className={`text-left px-4 py-3 rounded-xl border transition-colors text-sm ${
+              isCyber
+                ? 'border-emerald-800/30 bg-emerald-900/10 hover:bg-emerald-900/20 text-gray-300 hover:text-gray-100'
+                : 'border-gray-800 bg-gray-800/30 hover:bg-gray-800/60 text-gray-300 hover:text-gray-100'
+            }`}
           >
             {prompt}
           </button>
